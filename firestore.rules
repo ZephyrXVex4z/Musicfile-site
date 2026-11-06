@@ -1,0 +1,88 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() { return request.auth != null; }
+    // Administrador: existe admins/{uid} con admin == true. Ese documento solo se crea desde la consola de Firebase.
+    function isAdmin() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+        && get(/databases/$(database)/documents/admins/$(request.auth.uid)).data.admin == true;
+    }
+
+    match /admins/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list, write: if false;
+    }
+
+    function validRelease(d) {
+      return d.title is string && d.title.size() > 0 && d.title.size() <= 200
+        && d.type in ['album', 'single', 'ep', 'collection']
+        && d.meta is map && d.meta.artist is string && d.meta.artist.size() > 0
+        && d.description is string && d.description.size() <= 4000
+        && d.cover is string && d.cover.size() <= 2000
+        && d.downloads is list && d.downloads.size() >= 1 && d.downloads.size() <= 10
+        && d.scopes is list && d.scopes.size() <= 200
+        && d.tags is list && d.tags.size() <= 30;
+    }
+    function ratingDoc(id) {
+      return /databases/$(database)/documents/releases/$(id)/ratings/$(request.auth.uid);
+    }
+    // Una valoración solo puede sumar/cambiar el voto propio y mantener coherentes suma, cuenta y puntuación.
+    function ratingOk(id) {
+      let after = getAfter(ratingDoc(id)).data.value;
+      let had = exists(ratingDoc(id));
+      let before = had ? get(ratingDoc(id)).data.value : 0;
+      let d = request.resource.data;
+      let r = resource.data;
+      return d.ratingSum == r.ratingSum + after - before
+        && d.ratingCount == r.ratingCount + (had ? 0 : 1)
+        && math.abs(d.ratingScore * (d.ratingCount + 3) - (d.ratingSum + 9)) < 0.0001;
+    }
+
+    match /releases/{id} {
+      allow read: if true;
+      allow create: if signedIn() && validRelease(request.resource.data)
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.ratingSum == 0
+        && request.resource.data.ratingCount == 0
+        && request.resource.data.ratingScore == 0;
+      allow update: if
+        // dueño o administrador editan contenido (sin tocar valoraciones, autor ni fecha)
+        ((resource.data.createdBy == request.auth.uid || isAdmin()) && validRelease(request.resource.data)
+          && !request.resource.data.diff(resource.data).affectedKeys()
+               .hasAny(['ratingSum', 'ratingCount', 'ratingScore', 'createdBy', 'createdAt']))
+        // cualquier cuenta: solo los 3 campos de valoración, validados contra su voto
+        || (signedIn()
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratingSum', 'ratingCount', 'ratingScore'])
+          && ratingOk(id));
+      allow delete: if signedIn() && (resource.data.createdBy == request.auth.uid || isAdmin());
+
+      match /ratings/{uid} {
+        allow read: if signedIn() && request.auth.uid == uid;
+        allow create, update: if signedIn() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['value', 'updatedAt'])
+          && request.resource.data.value is int
+          && request.resource.data.value >= 1 && request.resource.data.value <= 5
+          && get(/databases/$(database)/documents/releases/$(id)).data.createdBy != request.auth.uid;
+        allow delete: if false;
+      }
+    }
+
+    // Reportes: cualquiera puede crear (validado); solo administradores leen y borran.
+    match /reports/{id} {
+      allow create: if request.resource.data.keys().hasOnly(['postId', 'postTitle', 'reason', 'message', 'createdAt'])
+        && request.resource.data.reason in ['Enlace roto', 'Contenido publicado sin autorización', 'Otro']
+        && request.resource.data.postId is string && request.resource.data.postId.size() <= 60
+        && request.resource.data.postTitle is string && request.resource.data.postTitle.size() <= 200
+        && request.resource.data.message is string && request.resource.data.message.size() <= 500
+        && request.resource.data.createdAt == request.time;
+      allow read, delete: if isAdmin();
+      allow update: if false;
+    }
+
+    // Todo lo demás (incluidas las colecciones de versiones anteriores): denegado.
+    match /{document=**} { allow read, write: if false; }
+  }
+}
