@@ -88,3 +88,4 @@ dl{margin:0}dt{font-size:.78rem;color:var(--mute)}dd{margin:0 0 .45rem;overflow-
 .star.on{color:#f5c451}.star:hover{transform:scale(1.15)}
 .top-r .btn{white-space:nowrap}
 @media (max-width:40rem){#uploadBtn{padding:.5rem .6rem}}
+.errbox{font-size:.75rem;background:var(--panel2);padding:.5rem;border-radius:var(--r);max-height:9rem;overflow:auto;overflow-wrap:anywhere}

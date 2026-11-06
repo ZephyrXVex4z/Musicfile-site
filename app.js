@@ -19,6 +19,7 @@ const err = e => {
   openDlg(h("h2", {}, "Falta un índice de Firestore"),
     h("p", {}, "Esta consulta necesita un índice. Créalo con el enlace, espera a que termine y recarga."),
     u ? h("p", {}, h("a", { href: u, target: "_blank", rel: "noopener noreferrer" }, "Crear índice en Firebase")) : h("p", {}, "Crea los índices de firestore.indexes.json desde la consola de Firebase."),
+    h("p", { class: "mute" }, "Detalle del error:"), h("pre", { class: "pre errbox" }, e.message || String(e)),
     h("div", { class: "row" }, h("button", { class: "btn primary", type: "button", onclick: closeDlg }, "Cerrar")));
 };
 
